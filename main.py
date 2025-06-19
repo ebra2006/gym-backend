@@ -1,4 +1,5 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Form
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from datetime import datetime
 from typing import List, Dict, Optional
@@ -7,12 +8,10 @@ import json
 
 app = FastAPI()
 
-# ========== 🔍 المسارات ==========
 USERS_FILE = "users.json"
 MESSAGES_FILE = "messages.json"
 
 # ========== 🧑 المستخدمون ==========
-
 class User(BaseModel):
     username: str
     blocked: List[str] = []
@@ -43,7 +42,6 @@ def register_user(username: str):
 
 @app.get("/users")
 def get_all_users():
-    # ✅ التعديل هنا: رجع فقط أسماء المستخدمين
     return [user.username for user in load_users()]
 
 @app.post("/block")
@@ -68,8 +66,49 @@ def unblock_user(current_user: str, block_user: str):
         save_users(users)
     return {"message": f"{block_user} unblocked"}
 
-# ========== 💬 الرسائل ==========
+@app.post("/delete_user")
+async def delete_user(request: Request):
+    form = await request.form()
+    username_to_delete = form.get("username")
+    users = load_users()
+    updated_users = [u for u in users if u.username != username_to_delete]
+    save_users(updated_users)
+    return HTMLResponse(content=f"""
+        <html lang="ar" dir="rtl">
+        <body style="font-family:Arial">
+            <p>✅ تم حذف المستخدم: <b>{username_to_delete}</b></p>
+            <a href="/admin">🔙 العودة إلى لوحة التحكم</a>
+        </body>
+        </html>
+    """)
 
+@app.post("/admin_action")
+async def admin_action(request: Request):
+    form = await request.form()
+    action = form.get("action")
+    target = form.get("target")
+    actor = form.get("actor")
+
+    users = load_users()
+    user = get_user(actor, users)
+    if not user:
+        return HTMLResponse("المستخدم غير موجود", status_code=404)
+
+    if action == "block" and target not in user.blocked:
+        user.blocked.append(target)
+    elif action == "unblock" and target in user.blocked:
+        user.blocked.remove(target)
+    save_users(users)
+    return HTMLResponse(content=f"""
+        <html lang="ar" dir="rtl">
+        <body style="font-family:Arial">
+            <p>✅ تم تنفيذ الإجراء <b>{action}</b> على <b>{target}</b> بواسطة <b>{actor}</b></p>
+            <a href="/admin">🔙 العودة إلى لوحة التحكم</a>
+        </body>
+        </html>
+    """)
+
+# ========== 💬 الرسائل ==========
 class Message(BaseModel):
     sender: str
     receiver: str
@@ -118,7 +157,6 @@ def delete_message(index: int):
         raise HTTPException(status_code=404, detail="Message not found")
 
 # ========== ✍️ الكتابة الآن ==========
-
 class TypingStatus(BaseModel):
     user: str
     typing: bool
@@ -135,7 +173,6 @@ def get_typing_status(user: str):
     return {"typing": typing_status.get(user, False)}
 
 # ========== 🧪 تتبع الاستخدام ==========
-
 class UsageData(BaseModel):
     device_id: str
     page: str
@@ -150,16 +187,32 @@ def track_usage(data: UsageData):
         f.write(log)
     return {"status": "received"}
 
-# ========== لوحة تحكم إدارية ==========
-
-from fastapi.responses import HTMLResponse
-
+# ========== لوحة تحكم HTML ==========
 @app.get("/admin", response_class=HTMLResponse)
 def admin_panel():
     users = load_users()
     users_html = "".join(
-        f"<li>{user.username} - حظر: {', '.join(user.blocked) if user.blocked else 'لا شيء'}</li>"
-        for user in users
+        f"""
+        <li>
+            👤 <b>{user.username}</b> - الحظر: {', '.join(user.blocked) if user.blocked else 'لا شيء'}
+            <form method="post" action="/delete_user" style="display:inline;">
+                <input type="hidden" name="username" value="{user.username}">
+                <button type="submit" style="color:red;">حذف</button>
+            </form>
+            <form method="post" action="/admin_action" style="display:inline;">
+                <input type="hidden" name="actor" value="{user.username}">
+                <input type="hidden" name="target" value="testuser">
+                <input type="hidden" name="action" value="block">
+                <button type="submit">حظر testuser</button>
+            </form>
+            <form method="post" action="/admin_action" style="display:inline;">
+                <input type="hidden" name="actor" value="{user.username}">
+                <input type="hidden" name="target" value="testuser">
+                <input type="hidden" name="action" value="unblock">
+                <button type="submit">فك الحظر عن testuser</button>
+            </form>
+        </li>
+        """ for user in users
     )
 
     messages_html = "".join(
