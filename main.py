@@ -54,3 +54,17 @@ def send_message(message: Message):
 @app.get("/messages")
 def get_all_messages():
     return messages
+
+# ========== المستخدمين المسجلين ==========
+@app.get("/users")
+def get_all_usernames():
+    unique_users = set()
+
+    for post in posts:
+        unique_users.add(post.username.lower())
+
+    for message in messages:
+        unique_users.add(message.sender.lower())
+        unique_users.add(message.receiver.lower())
+
+    return list(unique_users)
