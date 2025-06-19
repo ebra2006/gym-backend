@@ -1,12 +1,14 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from datetime import datetime
-from typing import List
+from typing import List, Dict
 import os
+import json
 
 app = FastAPI()
 
-# ========== تتبع الاستخدام ==========
+# ======== الاستخدام ==========
+
 class UsageData(BaseModel):
     device_id: str
     page: str
@@ -22,6 +24,7 @@ def track_usage(data: UsageData):
     return {"status": "received"}
 
 # ========== المستخدمون ==========
+
 USERS_FILE = "users.txt"
 
 def load_users() -> List[str]:
@@ -48,6 +51,7 @@ def get_all_usernames():
     return load_users()
 
 # ========== البوستات ==========
+
 class Post(BaseModel):
     username: str
     content: str
@@ -65,19 +69,63 @@ def get_all_posts():
     return posts
 
 # ========== الشات ==========
+
 class Message(BaseModel):
     sender: str
     receiver: str
     content: str
     timestamp: str = datetime.now().isoformat()
 
+MESSAGES_FILE = "messages.txt"
 messages: List[Message] = []
+
+# تحميل الرسائل من الملف عند تشغيل السيرفر
+def load_messages_from_file():
+    global messages
+    if os.path.exists(MESSAGES_FILE):
+        with open(MESSAGES_FILE, "r") as f:
+            messages_data = json.load(f)
+            messages = [Message(**msg) for msg in messages_data]
+
+# حفظ رسالة واحدة في الملف
+def save_message_to_file(message: Message):
+    # نحمل القائمة الحالية ثم نضيف الرسالة الجديدة
+    current = []
+    if os.path.exists(MESSAGES_FILE):
+        with open(MESSAGES_FILE, "r") as f:
+            current = json.load(f)
+
+    current.append(message.dict())
+    with open(MESSAGES_FILE, "w") as f:
+        json.dump(current, f, indent=2)
+
+@app.on_event("startup")
+def on_startup():
+    load_messages_from_file()
 
 @app.post("/messages")
 def send_message(message: Message):
     messages.append(message)
-    return {"message": "Message sent successfully", "total_messages": len(messages)}
+    save_message_to_file(message)
+    return {"message": "Message sent and saved", "total_messages": len(messages)}
 
 @app.get("/messages")
 def get_all_messages():
-    return messages
+    return [msg.dict() for msg in messages]
+
+# ========== الكتابة الآن ==========
+
+class TypingStatus(BaseModel):
+    user: str
+    typing: bool
+
+typing_status: Dict[str, bool] = {}
+
+@app.post("/typing")
+def update_typing_status(status: TypingStatus):
+    typing_status[status.user] = status.typing
+    return {"typing": status.typing}
+
+@app.get("/typing")
+def get_typing_status(user: str):
+    return {"typing": typing_status.get(user, False)}
