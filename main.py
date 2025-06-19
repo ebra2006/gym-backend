@@ -43,7 +43,8 @@ def register_user(username: str):
 
 @app.get("/users")
 def get_all_users():
-    return [user.dict() for user in load_users()]
+    # ✅ التعديل هنا: رجع فقط أسماء المستخدمين
+    return [user.username for user in load_users()]
 
 @app.post("/block")
 def block_user(current_user: str, block_user: str):
@@ -149,14 +150,7 @@ def track_usage(data: UsageData):
         f.write(log)
     return {"status": "received"}
 
-
-
-
-
-
-
-
-
+# ========== لوحة تحكم إدارية ==========
 
 from fastapi.responses import HTMLResponse
 
