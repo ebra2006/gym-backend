@@ -20,23 +20,20 @@ class User(BaseModel):
 def load_users() -> List[User]:
     if not os.path.exists(USERS_FILE):
         return []
-    with open(USERS_FILE, "r") as f:
+    with open(USERS_FILE, "r", encoding="utf-8") as f:
         users_data = json.load(f)
         return [User(**user) for user in users_data]
 
 def save_users(users: List[User]):
-    with open(USERS_FILE, "w") as f:
-        json.dump([user.dict() for user in users], f, indent=2)
+    with open(USERS_FILE, "w", encoding="utf-8") as f:
+        json.dump([user.dict() for user in users], f, indent=2, ensure_ascii=False)
 
 def get_user(username: str, users: List[User]) -> Optional[User]:
-    for user in users:
-        if user.username == username:
-            return user
-    return None
+    return next((user for user in users if user.username == username), None)
 
 @app.post("/register")
 def register_user(username: str):
-    username = username.lower()
+    username = username.strip().lower()
     users = load_users()
     if get_user(username, users):
         raise HTTPException(status_code=400, detail="Username already exists")
@@ -83,14 +80,14 @@ messages: List[Message] = []
 def load_messages():
     global messages
     if os.path.exists(MESSAGES_FILE):
-        with open(MESSAGES_FILE, "r") as f:
+        with open(MESSAGES_FILE, "r", encoding="utf-8") as f:
             msgs = json.load(f)
             messages.clear()
             messages.extend([Message(**msg) for msg in msgs])
 
 def save_messages():
-    with open(MESSAGES_FILE, "w") as f:
-        json.dump([m.dict() for m in messages], f, indent=2)
+    with open(MESSAGES_FILE, "w", encoding="utf-8") as f:
+        json.dump([m.dict() for m in messages], f, indent=2, ensure_ascii=False)
 
 @app.on_event("startup")
 def startup():
@@ -136,7 +133,7 @@ def update_typing_status(status: TypingStatus):
 def get_typing_status(user: str):
     return {"typing": typing_status.get(user, False)}
 
-# ========== 🧪 اختبار الاستخدام ==========
+# ========== 🧪 تتبع الاستخدام ==========
 
 class UsageData(BaseModel):
     device_id: str
@@ -147,7 +144,44 @@ class UsageData(BaseModel):
 
 @app.post("/track")
 def track_usage(data: UsageData):
-    with open("usage_log.txt", "a") as f:
+    with open("usage_log.txt", "a", encoding="utf-8") as f:
         log = f"[{datetime.now()}] {data.device_id} | {data.event_type} | {data.page} | {data.duration}s\n"
         f.write(log)
     return {"status": "received"}
+
+
+
+
+
+
+
+
+
+
+from fastapi.responses import HTMLResponse
+
+@app.get("/admin", response_class=HTMLResponse)
+def admin_panel():
+    users = load_users()
+    users_html = "".join(
+        f"<li>{user.username} - حظر: {', '.join(user.blocked) if user.blocked else 'لا شيء'}</li>"
+        for user in users
+    )
+
+    messages_html = "".join(
+        f"<li>{msg.timestamp} | <b>{msg.sender}</b> إلى <b>{msg.receiver}</b>: {msg.content}</li>"
+        for msg in messages
+    )
+
+    return f"""
+    <html lang="ar" dir="rtl">
+    <head><title>لوحة التحكم</title></head>
+    <body style="font-family:Arial">
+        <h2>🧑‍💼 المستخدمون</h2>
+        <ul>{users_html}</ul>
+        <hr>
+        <h2>💬 الرسائل</h2>
+        <ul>{messages_html}</ul>
+    </body>
+    </html>
+    """
