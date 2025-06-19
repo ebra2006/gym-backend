@@ -1,7 +1,8 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from datetime import datetime
 from typing import List
+import os
 
 app = FastAPI()
 
@@ -20,7 +21,33 @@ def track_usage(data: UsageData):
         f.write(log)
     return {"status": "received"}
 
-# ========== البوستات (المجتمع) ==========
+# ========== المستخدمون ==========
+USERS_FILE = "users.txt"
+
+def load_users() -> List[str]:
+    if not os.path.exists(USERS_FILE):
+        return []
+    with open(USERS_FILE, "r") as f:
+        return [line.strip() for line in f.readlines()]
+
+def save_user(username: str):
+    with open(USERS_FILE, "a") as f:
+        f.write(username + "\n")
+
+@app.post("/register")
+def register_user(username: str):
+    username = username.lower()
+    users = load_users()
+    if username in users:
+        raise HTTPException(status_code=400, detail="Username already taken")
+    save_user(username)
+    return {"message": "Username registered successfully"}
+
+@app.get("/users")
+def get_all_usernames():
+    return load_users()
+
+# ========== البوستات ==========
 class Post(BaseModel):
     username: str
     content: str
@@ -37,7 +64,7 @@ def create_post(post: Post):
 def get_all_posts():
     return posts
 
-# ========== الشات النصي ==========
+# ========== الشات ==========
 class Message(BaseModel):
     sender: str
     receiver: str
@@ -54,17 +81,3 @@ def send_message(message: Message):
 @app.get("/messages")
 def get_all_messages():
     return messages
-
-# ========== المستخدمين المسجلين ==========
-@app.get("/users")
-def get_all_usernames():
-    unique_users = set()
-
-    for post in posts:
-        unique_users.add(post.username.lower())
-
-    for message in messages:
-        unique_users.add(message.sender.lower())
-        unique_users.add(message.receiver.lower())
-
-    return list(unique_users)
