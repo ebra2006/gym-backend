@@ -22,6 +22,9 @@ def create_message(db: Session, sender: str, receiver: str, content: str, timest
     db.refresh(message)
     return message
 
-
 def get_all_messages(db: Session):
     return db.query(Message).order_by(Message.timestamp.desc()).all()
+
+# ✅ أضف دي عشان /users تشتغل
+def get_all_users(db: Session):
+    return db.query(User).all()
