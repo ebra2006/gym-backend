@@ -3,11 +3,15 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from database import SessionLocal, engine, Base
 from typing import List
+from datetime import datetime
 import crud
 from models import User, Message
 
 Base.metadata.create_all(bind=engine)
 app = FastAPI()
+
+# ✅ ذاكرة مؤقتة لحالة الكتابة typing
+typing_status = {}
 
 def get_db():
     db = SessionLocal()
@@ -25,6 +29,10 @@ class MessageCreate(BaseModel):
     receiver: str
     content: str
 
+class TypingStatus(BaseModel):
+    user: str
+    typing: bool
+
 # ✅ مخططات الإخراج
 class UserOut(BaseModel):
     id: int
@@ -38,7 +46,7 @@ class MessageOut(BaseModel):
     sender: str
     receiver: str
     content: str
-    timestamp: str
+    timestamp: datetime  # ← كان str ← صلحناه لـ datetime
 
     class Config:
         orm_mode = True
@@ -62,3 +70,15 @@ def send_message(msg: MessageCreate, db: Session = Depends(get_db)):
 @app.get("/messages", response_model=List[MessageOut])
 def list_messages(db: Session = Depends(get_db)):
     return crud.get_all_messages(db)
+
+# ✅ نقطة النهاية لحفظ حالة الكتابة
+@app.post("/typing")
+def update_typing_status(data: TypingStatus):
+    typing_status[data.user.lower()] = data.typing
+    return {"message": "updated"}
+
+# ✅ نقطة النهاية للحصول على حالة الكتابة
+@app.get("/typing")
+def get_typing_status(user: str):
+    status = typing_status.get(user.lower(), False)
+    return {"typing": status}
