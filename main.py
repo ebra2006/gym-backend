@@ -28,6 +28,8 @@ class MessageCreate(BaseModel):
     sender: str
     receiver: str
     content: str
+    timestamp: str | None = None  # ✅ التوقيت من الجهاز (اختياري)
+
 
 class TypingStatus(BaseModel):
     user: str
@@ -65,7 +67,13 @@ def list_users(db: Session = Depends(get_db)):
 
 @app.post("/messages", response_model=MessageOut)
 def send_message(msg: MessageCreate, db: Session = Depends(get_db)):
-    return crud.create_message(db, msg.sender, msg.receiver, msg.content)
+    return crud.create_message(
+        db,
+        msg.sender,
+        msg.receiver,
+        msg.content,
+        msg.timestamp
+    )
 
 @app.get("/messages", response_model=List[MessageOut])
 def list_messages(db: Session = Depends(get_db)):
