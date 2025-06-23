@@ -4,3 +4,4 @@ sqlalchemy
 aiosqlite
 psycopg2-binary
 fastapi-utils
+typing_inspect
