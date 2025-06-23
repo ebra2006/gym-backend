@@ -193,12 +193,12 @@ def update_post(db: Session, post_id: int, user_id: int, new_content: str):
     return post
 
 def delete_post(db: Session, post_id: int, user_id: int):
-    print(f"Trying to delete post {post_id} by user {user_id}")
     post = db.query(Post).filter(Post.id == post_id, Post.user_id == user_id).first()
     if not post:
-        print("Post not found or user has no permission")
         raise Exception("Post not found or no permission to delete")
+    
+    # الحذف التلقائي للcomments و likes عبر cascade في الrelationship، لا حاجة لحذف يدوي
     db.delete(post)
     db.commit()
-    print("Post deleted successfully")
     return {"message": "Post deleted"}
+
