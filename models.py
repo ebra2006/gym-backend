@@ -16,6 +16,7 @@ class Message(Base):
     content = Column(Text)
     timestamp = Column(DateTime, default=datetime.utcnow)
 
+# ✅ جدول البوستات
 class Post(Base):
     __tablename__ = "posts"
     id = Column(Integer, primary_key=True, index=True)
@@ -25,44 +26,30 @@ class Post(Base):
 
     user = relationship("User")
 
-    # إضافة cascade لحذف التعليقات واللايكات المرتبطة بالبوست تلقائيًا
-    comments = relationship(
-        "Comment",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
-        back_populates="post"
-    )
-    likes = relationship(
-        "Like",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
-        back_populates="post"
-    )
-
+# ✅ جدول التعليقات
 class Comment(Base):
     __tablename__ = "comments"
     id = Column(Integer, primary_key=True, index=True)
-    post_id = Column(Integer, ForeignKey("posts.id", ondelete="CASCADE"))
+    post_id = Column(Integer, ForeignKey("posts.id"))
     user_id = Column(Integer, ForeignKey("users.id"))
     content = Column(Text, nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow)
 
-    post = relationship("Post", back_populates="comments")
+    post = relationship("Post")
     user = relationship("User")
 
+# ✅ جدول اللايكات
 class Like(Base):
     __tablename__ = "likes"
     id = Column(Integer, primary_key=True, index=True)
-    post_id = Column(Integer, ForeignKey("posts.id", ondelete="CASCADE"))
+    post_id = Column(Integer, ForeignKey("posts.id"))
     user_id = Column(Integer, ForeignKey("users.id"))
-
-    post = relationship("Post", back_populates="likes")
-    user = relationship("User")
 
     __table_args__ = (
         UniqueConstraint("post_id", "user_id", name="unique_like"),
     )
 
+# ✅ جدول الإشعارات
 class Notification(Base):
     __tablename__ = "notifications"
     id = Column(Integer, primary_key=True, index=True)
