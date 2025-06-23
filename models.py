@@ -3,11 +3,23 @@ from sqlalchemy.orm import relationship
 from database import Base
 from datetime import datetime
 
+# ✅ لتفعيل foreign keys في SQLite (ضروري في حال التجربة المحلية)
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
+
+@event.listens_for(Engine, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
+
+# ✅ جدول المستخدمين
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, index=True, nullable=False)
 
+# ✅ جدول الرسائل
 class Message(Base):
     __tablename__ = "messages"
     id = Column(Integer, primary_key=True, index=True)
@@ -25,17 +37,23 @@ class Post(Base):
     timestamp = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User")
+    comments = relationship(
+        "Comment",
+        back_populates="post",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
 # ✅ جدول التعليقات
 class Comment(Base):
     __tablename__ = "comments"
     id = Column(Integer, primary_key=True, index=True)
-    post_id = Column(Integer, ForeignKey("posts.id"))
+    post_id = Column(Integer, ForeignKey("posts.id", ondelete="CASCADE"))
     user_id = Column(Integer, ForeignKey("users.id"))
     content = Column(Text, nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow)
 
-    post = relationship("Post")
+    post = relationship("Post", back_populates="comments")
     user = relationship("User")
 
 # ✅ جدول اللايكات
