@@ -46,7 +46,6 @@ def create_user(db: Session, username: str):
 def create_post(db: Session, user_id: int, content: str):
     today = datetime.utcnow().date()
 
-    # تحقق إن المستخدم نشر اليوم
     existing_post = db.query(Post).filter(
         Post.user_id == user_id,
         func.date(Post.timestamp) == today
@@ -54,7 +53,6 @@ def create_post(db: Session, user_id: int, content: str):
     if existing_post:
         raise Exception("User already posted today.")
 
-    # تحقق من حد 20 بوست يوميًا على مستوى السيرفر
     post_count_today = db.query(Post).filter(
         func.date(Post.timestamp) == today
     ).count()
@@ -84,7 +82,6 @@ def add_comment(db: Session, user_id: int, post_id: int, content: str):
     db.commit()
     db.refresh(comment)
 
-    # إشعار لصاحب البوست
     post = db.query(Post).filter(Post.id == post_id).first()
     if post and post.user_id != user_id:
         create_notification(db, post.user_id, f"{get_user(db, user_id).username} علق على بوستك")
@@ -94,24 +91,48 @@ def add_comment(db: Session, user_id: int, post_id: int, content: str):
 def get_comments_for_post(db: Session, post_id: int):
     return db.query(Comment).filter(Comment.post_id == post_id).order_by(Comment.timestamp.asc()).all()
 
+def update_comment(db: Session, comment_id: int, user_id: int, new_content: str):
+    comment = db.query(Comment).filter(Comment.id == comment_id, Comment.user_id == user_id).first()
+    if not comment:
+        raise Exception("Comment not found or no permission to edit")
+    comment.content = new_content
+    db.commit()
+    db.refresh(comment)
+    return comment
+
+def delete_comment(db: Session, comment_id: int, user_id: int):
+    comment = db.query(Comment).filter(Comment.id == comment_id, Comment.user_id == user_id).first()
+    if not comment:
+        raise Exception("Comment not found or no permission to delete")
+    db.delete(comment)
+    db.commit()
+    return {"message": "Comment deleted"}
+
 # ------------------------ اللايكات ------------------------ #
 
 def like_post(db: Session, user_id: int, post_id: int):
     existing_like = db.query(Like).filter_by(user_id=user_id, post_id=post_id).first()
     if existing_like:
-        return existing_like
+        raise Exception("Like already exists")
 
     like = Like(user_id=user_id, post_id=post_id)
     db.add(like)
     db.commit()
     db.refresh(like)
 
-    # إشعار لصاحب البوست
     post = db.query(Post).filter(Post.id == post_id).first()
     if post and post.user_id != user_id:
         create_notification(db, post.user_id, f"{get_user(db, user_id).username} عمل لايك على بوستك")
 
     return like
+
+def delete_like(db: Session, user_id: int, post_id: int):
+    like = db.query(Like).filter(Like.user_id == user_id, Like.post_id == post_id).first()
+    if not like:
+        raise Exception("Like not found")
+    db.delete(like)
+    db.commit()
+    return {"message": "Like removed"}
 
 def count_likes_for_post(db: Session, post_id: int):
     return db.query(Like).filter(Like.post_id == post_id).count()
@@ -132,7 +153,7 @@ def mark_notifications_read(db: Session, user_id: int):
     db.query(Notification).filter_by(user_id=user_id).update({"is_read": 1})
     db.commit()
 
-# ------------------------ بوستات مع التفاصيل (لايكات وتعليقات وأسماء مستخدمين) ------------------------ #
+# ------------------------ بوستات مع التفاصيل ------------------------ #
 
 def get_posts_with_details(db: Session, current_user_id: int):
     posts = db.query(Post).order_by(Post.timestamp.desc()).all()
@@ -165,12 +186,9 @@ def get_posts_with_details(db: Session, current_user_id: int):
             "comments": comments
         })
 
-    # خوارزمية ترتيب حسب وجود التفاعل أو عرض عشوائي عند غياب التفاعل
     posts_with_likes = [p for p in result if p["likes_count"] > 0]
     if posts_with_likes:
-        # أولاً الأعلى لايك
         posts_with_likes.sort(key=lambda x: x["likes_count"], reverse=True)
-        # باقي البوستات بدون لايك بالترتيب العشوائي
         no_likes = [p for p in result if p["likes_count"] == 0]
         import random
         random.shuffle(no_likes)
