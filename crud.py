@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
-from sqlalchemy import func, and_
+from sqlalchemy import func
 from models import User, Message, Post, Comment, Like, Notification
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # ------------------------ الشات القديم (كما هو) ------------------------ #
 
@@ -46,7 +46,7 @@ def create_user(db: Session, username: str):
 def create_post(db: Session, user_id: int, content: str):
     today = datetime.utcnow().date()
 
-    # ✅ تحقق إن المستخدم نشر اليوم
+    # تحقق إن المستخدم نشر اليوم
     existing_post = db.query(Post).filter(
         Post.user_id == user_id,
         func.date(Post.timestamp) == today
@@ -54,7 +54,7 @@ def create_post(db: Session, user_id: int, content: str):
     if existing_post:
         raise Exception("User already posted today.")
 
-    # ✅ تحقق من حد 20 بوست يوميًا على مستوى السيرفر
+    # تحقق من حد 20 بوست يوميًا على مستوى السيرفر
     post_count_today = db.query(Post).filter(
         func.date(Post.timestamp) == today
     ).count()
@@ -76,7 +76,7 @@ def delete_old_posts(db: Session):
     db.query(Post).filter(Post.timestamp < today).delete()
     db.commit()
 
-# ------------------------ تعليقات ------------------------ #
+# ------------------------ التعليقات ------------------------ #
 
 def add_comment(db: Session, user_id: int, post_id: int, content: str):
     comment = Comment(user_id=user_id, post_id=post_id, content=content)
@@ -84,7 +84,7 @@ def add_comment(db: Session, user_id: int, post_id: int, content: str):
     db.commit()
     db.refresh(comment)
 
-    # ✅ إشعار لصاحب البوست
+    # إشعار لصاحب البوست
     post = db.query(Post).filter(Post.id == post_id).first()
     if post and post.user_id != user_id:
         create_notification(db, post.user_id, f"{get_user(db, user_id).username} علق على بوستك")
@@ -94,10 +94,9 @@ def add_comment(db: Session, user_id: int, post_id: int, content: str):
 def get_comments_for_post(db: Session, post_id: int):
     return db.query(Comment).filter(Comment.post_id == post_id).order_by(Comment.timestamp.asc()).all()
 
-# ------------------------ لايكات ------------------------ #
+# ------------------------ اللايكات ------------------------ #
 
 def like_post(db: Session, user_id: int, post_id: int):
-    # ✅ لا تكرر اللايك
     existing_like = db.query(Like).filter_by(user_id=user_id, post_id=post_id).first()
     if existing_like:
         return existing_like
@@ -107,7 +106,7 @@ def like_post(db: Session, user_id: int, post_id: int):
     db.commit()
     db.refresh(like)
 
-    # ✅ إشعار لصاحب البوست
+    # إشعار لصاحب البوست
     post = db.query(Post).filter(Post.id == post_id).first()
     if post and post.user_id != user_id:
         create_notification(db, post.user_id, f"{get_user(db, user_id).username} عمل لايك على بوستك")
@@ -117,7 +116,7 @@ def like_post(db: Session, user_id: int, post_id: int):
 def count_likes_for_post(db: Session, post_id: int):
     return db.query(Like).filter(Like.post_id == post_id).count()
 
-# ------------------------ إشعارات ------------------------ #
+# ------------------------ الإشعارات ------------------------ #
 
 def create_notification(db: Session, user_id: int, message: str):
     notification = Notification(user_id=user_id, message=message)
@@ -132,3 +131,71 @@ def get_notifications(db: Session, user_id: int):
 def mark_notifications_read(db: Session, user_id: int):
     db.query(Notification).filter_by(user_id=user_id).update({"is_read": 1})
     db.commit()
+
+# ------------------------ بوستات مع التفاصيل (لايكات وتعليقات وأسماء مستخدمين) ------------------------ #
+
+def get_posts_with_details(db: Session, current_user_id: int):
+    posts = db.query(Post).order_by(Post.timestamp.desc()).all()
+    result = []
+
+    for post in posts:
+        likes_count = db.query(Like).filter(Like.post_id == post.id).count()
+        liked_by_user = db.query(Like).filter(Like.post_id == post.id, Like.user_id == current_user_id).first() is not None
+
+        comments_db = db.query(Comment).filter(Comment.post_id == post.id).order_by(Comment.timestamp.asc()).all()
+        comments = []
+        for c in comments_db:
+            comments.append({
+                "id": c.id,
+                "user_id": c.user_id,
+                "post_id": c.post_id,
+                "content": c.content,
+                "timestamp": c.timestamp.isoformat(),
+                "username": c.user.username if c.user else "مجهول"
+            })
+
+        result.append({
+            "id": post.id,
+            "user_id": post.user_id,
+            "content": post.content,
+            "timestamp": post.timestamp.isoformat(),
+            "username": post.user.username if post.user else "مجهول",
+            "likes_count": likes_count,
+            "liked_by_user": liked_by_user,
+            "comments": comments
+        })
+
+    # خوارزمية ترتيب حسب وجود التفاعل أو عرض عشوائي عند غياب التفاعل
+    posts_with_likes = [p for p in result if p["likes_count"] > 0]
+    if posts_with_likes:
+        # أولاً الأعلى لايك
+        posts_with_likes.sort(key=lambda x: x["likes_count"], reverse=True)
+        # باقي البوستات بدون لايك بالترتيب العشوائي
+        no_likes = [p for p in result if p["likes_count"] == 0]
+        import random
+        random.shuffle(no_likes)
+        result = posts_with_likes + no_likes
+    else:
+        import random
+        random.shuffle(result)
+
+    return result
+
+# ------------------------ تعديل وحذف بوست ------------------------ #
+
+def update_post(db: Session, post_id: int, user_id: int, new_content: str):
+    post = db.query(Post).filter(Post.id == post_id, Post.user_id == user_id).first()
+    if not post:
+        raise Exception("Post not found or no permission to edit")
+    post.content = new_content
+    db.commit()
+    db.refresh(post)
+    return post
+
+def delete_post(db: Session, post_id: int, user_id: int):
+    post = db.query(Post).filter(Post.id == post_id, Post.user_id == user_id).first()
+    if not post:
+        raise Exception("Post not found or no permission to delete")
+    db.delete(post)
+    db.commit()
+    return {"message": "Post deleted"}
