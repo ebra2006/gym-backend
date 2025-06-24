@@ -167,6 +167,20 @@ def comment_on_post(data: CommentCreate, db: Session = Depends(get_db)):
 @app.get("/comments/{post_id}", response_model=List[CommentOut])
 def get_comments(post_id: int, db: Session = Depends(get_db)):
     return crud.get_comments_for_post(db, post_id)
+#هنااااااا
+@app.put("/comments/{comment_id}")
+def update_comment(comment_id: int, new_content: str = Query(...), user_id: int = Query(...), db: Session = Depends(get_db)):
+    try:
+        return crud.edit_comment(db, comment_id, user_id, new_content)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.delete("/comments/{comment_id}")
+def delete_comment(comment_id: int, user_id: int = Query(...), db: Session = Depends(get_db)):
+    try:
+        return crud.delete_comment(db, comment_id, user_id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 # ======= نقاط نهاية اللايكات =======
 
@@ -177,6 +191,13 @@ def like_post(data: LikeCreate, db: Session = Depends(get_db)):
 @app.get("/likes/{post_id}")
 def count_likes(post_id: int, db: Session = Depends(get_db)):
     return {"likes": crud.count_likes_for_post(db, post_id)}
+#هنااااااا
+@app.delete("/likes")
+def unlike_post(user_id: int = Query(...), post_id: int = Query(...), db: Session = Depends(get_db)):
+    try:
+        return crud.remove_like(db, user_id, post_id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 # ======= نقاط نهاية الإشعارات =======
 

@@ -106,6 +106,25 @@ def add_comment(db: Session, user_id: int, post_id: int, content: str):
 def get_comments_for_post(db: Session, post_id: int):
     return db.query(Comment).filter(Comment.post_id == post_id).order_by(Comment.timestamp.asc()).all()
 
+#هنااااا
+def edit_comment(db: Session, comment_id: int, user_id: int, new_content: str):
+    comment = db.query(Comment).filter(Comment.id == comment_id, Comment.user_id == user_id).first()
+    if comment:
+        comment.content = new_content
+        db.commit()
+        db.refresh(comment)
+        return comment
+    raise Exception("Comment not found or not yours")
+
+
+def delete_comment(db: Session, comment_id: int, user_id: int):
+    comment = db.query(Comment).filter(Comment.id == comment_id, Comment.user_id == user_id).first()
+    if comment:
+        db.delete(comment)
+        db.commit()
+        return {"message": "Comment deleted"}
+    raise Exception("Comment not found or not yours")
+
 # ------------------------ اللايكات ------------------------ #
 
 def like_post(db: Session, user_id: int, post_id: int):
@@ -126,6 +145,14 @@ def like_post(db: Session, user_id: int, post_id: int):
 
 def count_likes_for_post(db: Session, post_id: int):
     return db.query(Like).filter(Like.post_id == post_id).count()
+#هناااااا
+def remove_like(db: Session, user_id: int, post_id: int):
+    like = db.query(Like).filter(Like.user_id == user_id, Like.post_id == post_id).first()
+    if like:
+        db.delete(like)
+        db.commit()
+        return {"message": "Like removed"}
+    raise Exception("Like not found")
 
 # ------------------------ الإشعارات ------------------------ #
 
