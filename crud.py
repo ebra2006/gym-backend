@@ -97,11 +97,14 @@ def add_comment(db: Session, user_id: int, post_id: int, content: str):
     db.commit()
     db.refresh(comment)
 
+    # ✅ تحميل العلاقة يدويًا بعد الإضافة
+    db.refresh(comment)
+    comment.user = db.query(User).filter(User.id == comment.user_id).first()
+
     post = db.query(Post).filter(Post.id == post_id).first()
     if post and post.user_id != user_id:
-        create_notification(db, post.user_id, f"{get_user(db, user_id).username} علق على بوستك")
+        create_notification(db, post.user_id, f"{comment.user.username} علق على بوستك")
 
-    # ✅ نرجع بيانات التعليق مع اسم المستخدم
     return {
         "id": comment.id,
         "user_id": comment.user_id,
