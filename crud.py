@@ -101,7 +101,15 @@ def add_comment(db: Session, user_id: int, post_id: int, content: str):
     if post and post.user_id != user_id:
         create_notification(db, post.user_id, f"{get_user(db, user_id).username} علق على بوستك")
 
-    return comment
+    # ✅ نرجع بيانات التعليق مع اسم المستخدم
+    return {
+        "id": comment.id,
+        "user_id": comment.user_id,
+        "post_id": comment.post_id,
+        "content": comment.content,
+        "timestamp": comment.timestamp.isoformat(),
+        "username": comment.user.username if comment.user else "مجهول"
+    }
 
 def get_comments_for_post(db: Session, post_id: int):
     return db.query(Comment).filter(Comment.post_id == post_id).order_by(Comment.timestamp.asc()).all()
