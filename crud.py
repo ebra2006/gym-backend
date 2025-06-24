@@ -2,8 +2,30 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from models import User, Message, Post, Comment, Like, Notification
 from datetime import datetime
+import bcrypt
 
-# ------------------------ الشات القديم (كما هو) ------------------------ #
+# ------------------------ تسجيل مستخدم وتسجيل دخول ------------------------ #
+
+def create_user(db: Session, username: str, password: str):
+    hashed_pw = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+    user = User(username=username, password=hashed_pw)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+def get_user_by_username(db: Session, username: str):
+    return db.query(User).filter(User.username == username).first()
+
+def verify_user(db: Session, username: str, password: str):
+    user = get_user_by_username(db, username)
+    if not user:
+        return None
+    if bcrypt.checkpw(password.encode('utf-8'), user.password.encode('utf-8')):
+        return user
+    return None
+
+# ------------------------ الشات القديم ------------------------ #
 
 def create_message(db: Session, sender: str, receiver: str, content: str, timestamp: str = None):
     if timestamp:
@@ -34,19 +56,11 @@ def get_all_users(db: Session):
 def get_user(db: Session, username: str):
     return db.query(User).filter(User.username == username).first()
 
-def create_user(db: Session, username: str):
-    user = User(username=username)
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return user
-
-# ------------------------ ميزة البوستات اليومية ------------------------ #
+# ------------------------ البوستات اليومية ------------------------ #
 
 def create_post(db: Session, user_id: int, content: str):
     today = datetime.utcnow().date()
 
-    # تحقق إن المستخدم نشر اليوم
     existing_post = db.query(Post).filter(
         Post.user_id == user_id,
         func.date(Post.timestamp) == today
@@ -54,7 +68,6 @@ def create_post(db: Session, user_id: int, content: str):
     if existing_post:
         raise Exception("User already posted today.")
 
-    # تحقق من حد 20 بوست يوميًا على مستوى السيرفر
     post_count_today = db.query(Post).filter(
         func.date(Post.timestamp) == today
     ).count()
@@ -84,7 +97,6 @@ def add_comment(db: Session, user_id: int, post_id: int, content: str):
     db.commit()
     db.refresh(comment)
 
-    # إشعار لصاحب البوست
     post = db.query(Post).filter(Post.id == post_id).first()
     if post and post.user_id != user_id:
         create_notification(db, post.user_id, f"{get_user(db, user_id).username} علق على بوستك")
@@ -106,7 +118,6 @@ def like_post(db: Session, user_id: int, post_id: int):
     db.commit()
     db.refresh(like)
 
-    # إشعار لصاحب البوست
     post = db.query(Post).filter(Post.id == post_id).first()
     if post and post.user_id != user_id:
         create_notification(db, post.user_id, f"{get_user(db, user_id).username} عمل لايك على بوستك")
@@ -132,7 +143,7 @@ def mark_notifications_read(db: Session, user_id: int):
     db.query(Notification).filter_by(user_id=user_id).update({"is_read": 1})
     db.commit()
 
-# ------------------------ بوستات مع التفاصيل (لايكات وتعليقات وأسماء مستخدمين) ------------------------ #
+# ------------------------ بوستات مع تفاصيل ------------------------ #
 
 def get_posts_with_details(db: Session, current_user_id: int):
     posts = db.query(Post).order_by(Post.timestamp.desc()).all()
@@ -165,12 +176,9 @@ def get_posts_with_details(db: Session, current_user_id: int):
             "comments": comments
         })
 
-    # خوارزمية ترتيب حسب وجود التفاعل أو عرض عشوائي عند غياب التفاعل
     posts_with_likes = [p for p in result if p["likes_count"] > 0]
     if posts_with_likes:
-        # أولاً الأعلى لايك
         posts_with_likes.sort(key=lambda x: x["likes_count"], reverse=True)
-        # باقي البوستات بدون لايك بالترتيب العشوائي
         no_likes = [p for p in result if p["likes_count"] == 0]
         import random
         random.shuffle(no_likes)

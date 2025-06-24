@@ -21,6 +21,14 @@ def get_db():
         db.close()
 
 # ======= مخططات الإدخال =======
+class UserRegister(BaseModel):
+    username: str
+    password: str
+
+class UserLogin(BaseModel):
+    username: str
+    password: str
+
 
 class UserCreate(BaseModel):
     username: str
@@ -97,10 +105,17 @@ class NotificationOut(BaseModel):
 # ======= نقاط النهاية القديمة (شات) =======
 
 @app.post("/register", response_model=UserOut)
-def register(user: UserCreate, db: Session = Depends(get_db)):
-    if crud.get_user(db, user.username):
+def register(user: UserRegister, db: Session = Depends(get_db)):
+    if crud.get_user_by_username(db, user.username):
         raise HTTPException(status_code=400, detail="Username already exists")
-    return crud.create_user(db, user.username)
+    return crud.create_user(db, user.username, user.password)
+
+@app.post("/login", response_model=UserOut)
+def login(user: UserLogin, db: Session = Depends(get_db)):
+    authenticated_user = crud.verify_user(db, user.username, user.password)
+    if not authenticated_user:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    return authenticated_user
 
 @app.get("/users", response_model=List[UserOut])
 def list_users(db: Session = Depends(get_db)):
