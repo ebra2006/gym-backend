@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, Query
+from fastapi import FastAPI, HTTPException, Depends, Query, WebSocket, WebSocketDisconnect
 from fastapi_utils.tasks import repeat_every
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -11,8 +11,38 @@ from models import User, Message, Post, Comment, Like, Notification
 Base.metadata.create_all(bind=engine)
 app = FastAPI()
 
-typing_status = {}
+# ----------------- WebSocket Manager -----------------
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: List[WebSocket] = []
 
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+
+    async def broadcast(self, message: dict):
+        for connection in self.active_connections:
+            try:
+                await connection.send_json(message)
+            except:
+                pass
+
+post_manager = ConnectionManager()
+
+@app.websocket("/ws/posts")
+async def post_websocket(websocket: WebSocket):
+    await post_manager.connect(websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        post_manager.disconnect(websocket)
+
+# ----------------- Database Dependency -----------------
 def get_db():
     db = SessionLocal()
     try:
@@ -20,7 +50,7 @@ def get_db():
     finally:
         db.close()
 
-# ======= مخططات الإدخال =======
+# ----------------- Schemas -----------------
 class UserRegister(BaseModel):
     username: str
     password: str
@@ -28,7 +58,6 @@ class UserRegister(BaseModel):
 class UserLogin(BaseModel):
     username: str
     password: str
-
 
 class UserCreate(BaseModel):
     username: str
@@ -58,8 +87,6 @@ class LikeCreate(BaseModel):
 
 class PostUpdate(BaseModel):
     content: str
-
-# ======= مخططات الإخراج =======
 
 class UserOut(BaseModel):
     id: int
@@ -102,8 +129,7 @@ class NotificationOut(BaseModel):
     class Config:
         orm_mode = True
 
-# ======= نقاط النهاية القديمة (شات) =======
-
+# ----------------- Auth & Users -----------------
 @app.post("/register", response_model=UserOut)
 def register(user: UserRegister, db: Session = Depends(get_db)):
     if crud.get_user_by_username(db, user.username):
@@ -121,15 +147,10 @@ def login(user: UserLogin, db: Session = Depends(get_db)):
 def list_users(db: Session = Depends(get_db)):
     return crud.get_all_users(db)
 
+# ----------------- Messages -----------------
 @app.post("/messages", response_model=MessageOut)
 def send_message(msg: MessageCreate, db: Session = Depends(get_db)):
-    return crud.create_message(
-        db,
-        msg.sender,
-        msg.receiver,
-        msg.content,
-        msg.timestamp
-    )
+    return crud.create_message(db, msg.sender, msg.receiver, msg.content, msg.timestamp)
 
 @app.get("/messages", response_model=List[MessageOut])
 def list_messages(db: Session = Depends(get_db)):
@@ -137,20 +158,19 @@ def list_messages(db: Session = Depends(get_db)):
 
 @app.post("/typing")
 def update_typing_status(data: TypingStatus):
-    typing_status[data.user.lower()] = data.typing
     return {"message": "updated"}
 
 @app.get("/typing")
 def get_typing_status(user: str):
-    status = typing_status.get(user.lower(), False)
-    return {"typing": status}
+    return {"typing": False}
 
-# ======= نقاط نهاية البوستات اليومية مع التفاصيل =======
-
+# ----------------- Posts -----------------
 @app.post("/posts", response_model=PostOut)
-def create_post(post: PostCreate, db: Session = Depends(get_db)):
+async def create_post(post: PostCreate, db: Session = Depends(get_db)):
     try:
-        return crud.create_post(db, post.user_id, post.content)
+        created = crud.create_post(db, post.user_id, post.content)
+        await post_manager.broadcast({"action": "new_post", "post_id": created.id})
+        return created
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -158,49 +178,74 @@ def create_post(post: PostCreate, db: Session = Depends(get_db)):
 def get_posts(current_user_id: int = Query(...), db: Session = Depends(get_db)):
     return crud.get_posts_with_details(db, current_user_id)
 
-# ======= نقاط نهاية التعليقات =======
+@app.put("/posts/{post_id}")
+async def edit_post(post_id: int, data: PostUpdate, user_id: int = Query(...), db: Session = Depends(get_db)):
+    try:
+        updated = crud.update_post(db, post_id, user_id, data.content)
+        await post_manager.broadcast({"action": "edit_post", "post_id": updated.id})
+        return updated
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
+@app.delete("/posts/{post_id}")
+async def remove_post(post_id: int, user_id: int = Query(...), db: Session = Depends(get_db)):
+    try:
+        crud.delete_post(db, post_id, user_id)
+        await post_manager.broadcast({"action": "delete_post", "post_id": post_id})
+        return {"message": "Post deleted"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+# ----------------- Comments -----------------
 @app.post("/comments", response_model=CommentOut)
-def comment_on_post(data: CommentCreate, db: Session = Depends(get_db)):
-    return crud.add_comment(db, data.user_id, data.post_id, data.content)
+async def comment_on_post(data: CommentCreate, db: Session = Depends(get_db)):
+    comment = crud.add_comment(db, data.user_id, data.post_id, data.content)
+    await post_manager.broadcast({"action": "new_comment", "post_id": data.post_id})
+    return comment
 
 @app.get("/comments/{post_id}", response_model=List[CommentOut])
 def get_comments(post_id: int, db: Session = Depends(get_db)):
     return crud.get_comments_for_post(db, post_id)
-#هنااااااا
+
 @app.put("/comments/{comment_id}")
-def update_comment(comment_id: int, new_content: str = Query(...), user_id: int = Query(...), db: Session = Depends(get_db)):
+async def update_comment(comment_id: int, new_content: str = Query(...), user_id: int = Query(...), db: Session = Depends(get_db)):
     try:
-        return crud.edit_comment(db, comment_id, user_id, new_content)
+        comment = crud.edit_comment(db, comment_id, user_id, new_content)
+        await post_manager.broadcast({"action": "edit_comment", "post_id": comment.post_id})
+        return comment
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.delete("/comments/{comment_id}")
-def delete_comment(comment_id: int, user_id: int = Query(...), db: Session = Depends(get_db)):
+async def delete_comment(comment_id: int, user_id: int = Query(...), db: Session = Depends(get_db)):
     try:
-        return crud.delete_comment(db, comment_id, user_id)
+        result = crud.delete_comment(db, comment_id, user_id)
+        await post_manager.broadcast({"action": "delete_comment", "comment_id": comment_id})
+        return result
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-# ======= نقاط نهاية اللايكات =======
-
+# ----------------- Likes -----------------
 @app.post("/likes")
-def like_post(data: LikeCreate, db: Session = Depends(get_db)):
-    return crud.like_post(db, data.user_id, data.post_id)
+async def like_post(data: LikeCreate, db: Session = Depends(get_db)):
+    like = crud.like_post(db, data.user_id, data.post_id)
+    await post_manager.broadcast({"action": "like", "post_id": data.post_id})
+    return like
 
 @app.get("/likes/{post_id}")
 def count_likes(post_id: int, db: Session = Depends(get_db)):
     return {"likes": crud.count_likes_for_post(db, post_id)}
-#هنااااااا
+
 @app.delete("/likes")
-def unlike_post(user_id: int = Query(...), post_id: int = Query(...), db: Session = Depends(get_db)):
+async def unlike_post(user_id: int = Query(...), post_id: int = Query(...), db: Session = Depends(get_db)):
     try:
-        return crud.remove_like(db, user_id, post_id)
+        crud.remove_like(db, user_id, post_id)
+        await post_manager.broadcast({"action": "unlike", "post_id": post_id})
+        return {"message": "Like removed"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-# ======= نقاط نهاية الإشعارات =======
-
+# ----------------- Notifications -----------------
 @app.get("/notifications/{user_id}", response_model=List[NotificationOut])
 def get_notifications(user_id: int, db: Session = Depends(get_db)):
     return crud.get_notifications(db, user_id)
@@ -210,27 +255,9 @@ def mark_notifications(user_id: int, db: Session = Depends(get_db)):
     crud.mark_notifications_read(db, user_id)
     return {"message": "Notifications marked as read."}
 
-# ======= نقاط نهاية تعديل وحذف البوست =======
-
-@app.put("/posts/{post_id}")
-def edit_post(post_id: int, data: PostUpdate, user_id: int = Query(...), db: Session = Depends(get_db)):
-    try:
-        updated_post = crud.update_post(db, post_id, user_id, data.content)
-        return updated_post
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-@app.delete("/posts/{post_id}")
-def remove_post(post_id: int, user_id: int = Query(...), db: Session = Depends(get_db)):
-    try:
-        return crud.delete_post(db, post_id, user_id)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-# ======= حذف البوستات القديمة تلقائيًا يوميًا =======
-
+# ----------------- Auto Delete Old Posts -----------------
 @app.on_event("startup")
-@repeat_every(seconds=60 * 60 * 24)  # كل 24 ساعة
+@repeat_every(seconds=60 * 60 * 24)
 def daily_post_cleanup_task() -> None:
     db = SessionLocal()
     crud.delete_old_posts(db)
