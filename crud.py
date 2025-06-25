@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from models import User, Message, Post, Comment, Like, Notification
-from datetime import datetime
+from datetime import datetime, timedelta
 import bcrypt
 
 # ------------------------ تسجيل مستخدم وتسجيل دخول ------------------------ #
@@ -25,7 +25,7 @@ def verify_user(db: Session, username: str, password: str):
         return user
     return None
 
-# ------------------------ الشات ------------------------ #
+# ------------------------ الشات القديم ------------------------ #
 
 def create_message(db: Session, sender: str, receiver: str, content: str, timestamp: str = None):
     if timestamp:
@@ -45,13 +45,6 @@ def create_message(db: Session, sender: str, receiver: str, content: str, timest
     db.add(message)
     db.commit()
     db.refresh(message)
-
-    # ✅ إنشاء إشعار للمستلم
-    receiver_user = get_user_by_username(db, receiver)
-    if receiver_user:
-        notif_text = f"لديك رسالة جديدة من {sender}"
-        create_notification(db, user_id=receiver_user.id, message=notif_text)
-
     return message
 
 def get_all_messages(db: Session):
@@ -91,9 +84,19 @@ def get_today_posts(db: Session):
     today = datetime.utcnow().date()
     return db.query(Post).filter(func.date(Post.timestamp) == today).order_by(Post.timestamp.desc()).all()
 
-def delete_old_posts(db: Session):
-    today = datetime.utcnow().date()
-    db.query(Post).filter(Post.timestamp < today).delete()
+# تم تعديل هذه الدالة لحذف البوستات القديمة مع التعليقات واللايكات الخاصة بها
+def delete_old_posts(db: Session, days_threshold: int = 30):
+    cutoff_date = datetime.utcnow() - timedelta(days=days_threshold)
+    old_posts = db.query(Post).filter(Post.timestamp < cutoff_date).all()
+
+    for post in old_posts:
+        # حذف تعليقات البوست القديم
+        db.query(Comment).filter(Comment.post_id == post.id).delete()
+        # حذف اللايكات الخاصة بالبوست القديم
+        db.query(Like).filter(Like.post_id == post.id).delete()
+        # حذف البوست نفسه
+        db.delete(post)
+
     db.commit()
 
 # ------------------------ التعليقات ------------------------ #
@@ -104,7 +107,7 @@ def add_comment(db: Session, user_id: int, post_id: int, content: str):
     db.commit()
     db.refresh(comment)
 
-    # تحميل العلاقة يدويًا
+    # ✅ تحميل العلاقة يدويًا بعد الإضافة
     db.refresh(comment)
     comment.user = db.query(User).filter(User.id == comment.user_id).first()
 
