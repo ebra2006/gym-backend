@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from models import User, Message, Post, Comment, Like, Notification
-from datetime import datetime, timedelta
+from datetime import datetime
 import bcrypt
 
 # ------------------------ تسجيل مستخدم وتسجيل دخول ------------------------ #
@@ -84,19 +84,9 @@ def get_today_posts(db: Session):
     today = datetime.utcnow().date()
     return db.query(Post).filter(func.date(Post.timestamp) == today).order_by(Post.timestamp.desc()).all()
 
-# تم تعديل هذه الدالة لحذف البوستات القديمة مع التعليقات واللايكات الخاصة بها
-def delete_old_posts(db: Session, days_threshold: int = 30):
-    cutoff_date = datetime.utcnow() - timedelta(days=days_threshold)
-    old_posts = db.query(Post).filter(Post.timestamp < cutoff_date).all()
-
-    for post in old_posts:
-        # حذف تعليقات البوست القديم
-        db.query(Comment).filter(Comment.post_id == post.id).delete()
-        # حذف اللايكات الخاصة بالبوست القديم
-        db.query(Like).filter(Like.post_id == post.id).delete()
-        # حذف البوست نفسه
-        db.delete(post)
-
+def delete_old_posts(db: Session):
+    today = datetime.utcnow().date()
+    db.query(Post).filter(Post.timestamp < today).delete()
     db.commit()
 
 # ------------------------ التعليقات ------------------------ #
@@ -127,6 +117,7 @@ def add_comment(db: Session, user_id: int, post_id: int, content: str):
 def get_comments_for_post(db: Session, post_id: int):
     return db.query(Comment).filter(Comment.post_id == post_id).order_by(Comment.timestamp.asc()).all()
 
+#هنااااا
 def edit_comment(db: Session, comment_id: int, user_id: int, new_content: str):
     comment = db.query(Comment).filter(Comment.id == comment_id, Comment.user_id == user_id).first()
     if comment:
@@ -135,6 +126,7 @@ def edit_comment(db: Session, comment_id: int, user_id: int, new_content: str):
         db.refresh(comment)
         return comment
     raise Exception("Comment not found or not yours")
+
 
 def delete_comment(db: Session, comment_id: int, user_id: int):
     comment = db.query(Comment).filter(Comment.id == comment_id, Comment.user_id == user_id).first()
@@ -164,7 +156,7 @@ def like_post(db: Session, user_id: int, post_id: int):
 
 def count_likes_for_post(db: Session, post_id: int):
     return db.query(Like).filter(Like.post_id == post_id).count()
-
+#هناااااا
 def remove_like(db: Session, user_id: int, post_id: int):
     like = db.query(Like).filter(Like.user_id == user_id, Like.post_id == post_id).first()
     if like:

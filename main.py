@@ -257,10 +257,8 @@ def mark_notifications(user_id: int, db: Session = Depends(get_db)):
 
 # ----------------- Auto Delete Old Posts -----------------
 @app.on_event("startup")
-@repeat_every(seconds=60 )  # كل 24 ساعة
+@repeat_every(seconds=60 * 60 * 24)
 def daily_post_cleanup_task() -> None:
     db = SessionLocal()
-    try:
-        crud.delete_old_posts(db)  # دالة في crud تحذف البوستات القديمة + تعليقات + لايكات
-    finally:
-        db.close()
+    crud.delete_old_posts(db)
+    db.close()
