@@ -25,7 +25,7 @@ def verify_user(db: Session, username: str, password: str):
         return user
     return None
 
-# ------------------------ الشات القديم ------------------------ #
+# ------------------------ الشات ------------------------ #
 
 def create_message(db: Session, sender: str, receiver: str, content: str, timestamp: str = None):
     if timestamp:
@@ -45,6 +45,13 @@ def create_message(db: Session, sender: str, receiver: str, content: str, timest
     db.add(message)
     db.commit()
     db.refresh(message)
+
+    # ✅ إنشاء إشعار للمستلم
+    receiver_user = get_user_by_username(db, receiver)
+    if receiver_user:
+        notif_text = f"لديك رسالة جديدة من {sender}"
+        create_notification(db, user_id=receiver_user.id, message=notif_text)
+
     return message
 
 def get_all_messages(db: Session):
@@ -97,7 +104,7 @@ def add_comment(db: Session, user_id: int, post_id: int, content: str):
     db.commit()
     db.refresh(comment)
 
-    # ✅ تحميل العلاقة يدويًا بعد الإضافة
+    # تحميل العلاقة يدويًا
     db.refresh(comment)
     comment.user = db.query(User).filter(User.id == comment.user_id).first()
 
@@ -117,7 +124,6 @@ def add_comment(db: Session, user_id: int, post_id: int, content: str):
 def get_comments_for_post(db: Session, post_id: int):
     return db.query(Comment).filter(Comment.post_id == post_id).order_by(Comment.timestamp.asc()).all()
 
-#هنااااا
 def edit_comment(db: Session, comment_id: int, user_id: int, new_content: str):
     comment = db.query(Comment).filter(Comment.id == comment_id, Comment.user_id == user_id).first()
     if comment:
@@ -126,7 +132,6 @@ def edit_comment(db: Session, comment_id: int, user_id: int, new_content: str):
         db.refresh(comment)
         return comment
     raise Exception("Comment not found or not yours")
-
 
 def delete_comment(db: Session, comment_id: int, user_id: int):
     comment = db.query(Comment).filter(Comment.id == comment_id, Comment.user_id == user_id).first()
@@ -156,7 +161,7 @@ def like_post(db: Session, user_id: int, post_id: int):
 
 def count_likes_for_post(db: Session, post_id: int):
     return db.query(Like).filter(Like.post_id == post_id).count()
-#هناااااا
+
 def remove_like(db: Session, user_id: int, post_id: int):
     like = db.query(Like).filter(Like.user_id == user_id, Like.post_id == post_id).first()
     if like:
